@@ -1,4 +1,5 @@
 <?php
+namespace RedLock;
 
 class RedLock
 {
@@ -11,14 +12,14 @@ class RedLock
     private $servers = array();
     private $instances = array();
 
-    function __construct(array $servers, $retryDelay = 200, $retryCount = 3)
+    public function __construct(array $servers, $retryDelay = 200, $retryCount = 3)
     {
         $this->servers = $servers;
 
         $this->retryDelay = $retryDelay;
         $this->retryCount = $retryCount;
 
-        $this->quorum  = min(count($servers), (count($servers) / 2 + 1));
+        $this->quorum = min(count($servers), (count($servers) / 2 + 1));
     }
 
     public function lock($resource, $ttl)
@@ -52,53 +53,84 @@ class RedLock
                     'resource' => $resource,
                     'token'    => $token,
                 ];
-
             } else {
                 foreach ($this->instances as $instance) {
                     $this->unlockInstance($instance, $resource, $token);
                 }
             }
 
-            // Wait a random delay before to retry
-            $delay = mt_rand(floor($this->retryDelay / 2), $this->retryDelay);
-            usleep($delay * 1000);
-
             $retry--;
 
+            if ($retry > 0) {
+                // Wait a random delay before to retry
+                $delay = mt_rand(floor($this->retryDelay / 2), $this->retryDelay);
+                usleep($delay * 1000);
+            }
         } while ($retry > 0);
 
         return false;
     }
 
-    public function unlock(array $lock)
+    public function unlock($lock)
     {
         $this->initInstances();
         $resource = $lock['resource'];
         $token    = $lock['token'];
 
+        $success = 0;
+        $fail = 0;
         foreach ($this->instances as $instance) {
-            $this->unlockInstance($instance, $resource, $token);
+            if ($this->unlockInstance($instance, $resource, $token)) {
+                $success += 1;
+            } else {
+                $fail += 1;
+            }
         }
+
+        return $fail == 0;
     }
 
     private function initInstances()
     {
         if (empty($this->instances)) {
             foreach ($this->servers as $server) {
-                list($host, $port, $timeout) = $server;
-                $redis = new \Redis();
-                $redis->connect($host, $port, $timeout);
-
+                if ($server instanceof \Redis) {
+                    if ($server->isConnected()) {
+                        $redis = $server;
+                    } else {
+                        throw new \Exception(
+                            "If you use \\Redis objects as argument, the \\Redis object must be connected."
+                        );
+                    }
+                } else {
+                    list($host, $port, $timeout) = $server;
+                    $redis = new \Redis();
+                    $redis->connect($host, $port, $timeout);
+                }
                 $this->instances[] = $redis;
             }
         }
     }
 
+    /**
+     * @param \Redis $instance
+     * @param string $resource
+     * @param string $token
+     * @param int    $ttl
+     * @return mixed
+     */
     private function lockInstance($instance, $resource, $token, $ttl)
     {
         return $instance->set($resource, $token, ['NX', 'PX' => $ttl]);
+
     }
 
+    /**
+     * @param \Redis $instance
+     * @param string $resource
+     * @param string $token
+     * @return mixed
+     */
     private function unlockInstance($instance, $resource, $token)
     {
         $script = '
@@ -108,6 +140,13 @@ class RedLock
                 return 0
             end
         ';
-        return $instance->eval($script, [$resource, $token], 1);
+
+        // If the redis object is using igbinary as serializer
+        // we need to call serialize to make sure we the
+        // value is serialized the same way in our above Lua
+        // as when we called ->set()
+        $serializedToken = $instance->_serialize($token);
+
+        return $instance->eval($script, [$resource, $serializedToken], 1);
     }
 }

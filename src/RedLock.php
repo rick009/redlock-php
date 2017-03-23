@@ -103,9 +103,17 @@ class RedLock
                         );
                     }
                 } else {
-                    list($host, $port, $timeout) = $server;
+                    list($host, $port, $timeout, $database, $password, $prefix) = $server;
                     $redis = new \Redis();
                     $redis->connect($host, $port, $timeout);
+                    if (!empty($password)) {
+                        $redis->auth($password);
+                    }
+                    if ($prefix) {
+                        $redis->setOption(\Redis::OPT_PREFIX, $prefix);
+                    }
+                    $database = empty($database) ? 0 : $database;
+                    $redis->select($database);
                 }
                 $this->instances[] = $redis;
             }
@@ -122,7 +130,6 @@ class RedLock
     private function lockInstance($instance, $resource, $token, $ttl)
     {
         return $instance->set($resource, $token, ['NX', 'PX' => $ttl]);
-
     }
 
     /**

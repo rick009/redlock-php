@@ -8,10 +8,11 @@ To create a lock manager:
 
 ```php
 
+// [host, port, timeout, database, password, prefix]
 $servers = [
-    ['127.0.0.1', 6379, 0.01],
-    ['127.0.0.1', 6389, 0.01],
-    ['127.0.0.1', 6399, 0.01],
+    ['127.0.0.1', 6379, 0.01, 1, 'password', 'prefix'],
+    ['127.0.0.1', 6389, 0.01, 1, 'password', 'prefix'],
+    ['127.0.0.1', 6399, 0.01, 1, 'password', 'prefix'],
 ];
 
 $redLock = new RedLock($servers);

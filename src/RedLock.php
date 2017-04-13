@@ -129,7 +129,11 @@ class RedLock
      */
     private function lockInstance($instance, $resource, $token, $ttl)
     {
-        return $instance->set($resource, $token, ['NX', 'PX' => $ttl]);
+        try {
+            return $instance->set($resource, $token, ['NX', 'PX' => $ttl]);
+        } catch (\RedisException $exception) {
+            return false;
+        }
     }
 
     /**
